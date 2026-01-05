@@ -1,0 +1,213 @@
+\documentclass{article}
+
+\usepackage{graphicx}
+
+\usepackage{listings}
+\usepackage{xcolor}
+
+\lstdefinelanguage{Cypher}{
+  keywords={MATCH, RETURN, WHERE, CREATE, DELETE, SET, WITH, MERGE},
+  sensitive=true,
+  morecomment=[l]{//},
+  morestring=[b]"
+}
+
+\lstset{
+  language=Cypher,
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{blue}\bfseries,
+  stringstyle=\color{red},
+  commentstyle=\color{green!50!black},
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  stepnumber=1,
+  numbersep=5pt,
+  showstringspaces=false,
+  breaklines=true,
+  frame=single
+}
+
+
+\title{Basket}
+\author{
+    MATTHEWS Louis-Marie,
+    OUNES Sarah
+}
+
+\begin{document}
+
+\maketitle
+
+\tableofcontents
+
+\section{Exploring and preparing the dataset}
+
+\subsection{Basic EDA}
+
+The dataset we are using is the \verb|Basketball_women.json| dataset. As for any data science project,  we begin with an EDA\footnote{Exploratory Data Analysis.}
+
+For this, we use Python with the Pandas library, as well as a notebook as it makes prototyping and seeing the result very fast and convenient. We use these tools to get an idea of the structure and the volume of the data.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.5\linewidth]{image.png}
+    \caption{We use Pandas for very basic EDA.}
+    \label{fig:eda}
+\end{figure}
+
+By looking at the first row, as well as at the result of \verb|df.info()| and the non-empty values for the columns \verb|players_teams| and \verb|awards_players|, we can identify several distinct entities that will our constitute the types of the future nodes of our graph. Those are:
+
+\begin{itemize}
+    \item Player,
+    \item Award,
+    \item College,
+    \item High-School,
+    \item and Team.
+\end{itemize}
+
+Player is the only node with a one-way relationship towards all other node types. In certain cases, as for its relationship with \texttt{Team}, the relationship has parameters (e.g. the year, the number of goals, etc).
+
+\subsection{Preparing the data}
+
+We split the dataset into 5 smaller CSV files. CSV files are easier to import into Neo4j Desktop. Each dataset corresponds to a node type. The Player node type is the only one with properties, all the others only contain an identifier for the specific node. This means we do not need to create datasets for relationships with the Player node type, we can simply package them with the node type.
+
+Those datasets are:
+
+\begin{itemize}
+    \item \verb|awards.csv|: A list of awards, and the relationships between players and awards, as well as relationship information (when was the award won by the player, etc).
+    \item \verb|colleges.csv|
+    \item \verb|high_schools.csv|
+    \item \verb|players_teams.csv|: Similar to \verb|awards.csv|, but for teams.
+    \item \verb|players.csv|: Lists players information, and their high school and college they attended.
+\end{itemize}
+
+\section{Importing the data into Neo4j Desktop}
+
+Neo4j Desktop makes it convenient and easy to import data. From its graphical user interface, and after creating an instance and a database for our project, it sufficed to import the CSV files, and determine the different node labels (the name of the type), properties, as well as the relationships.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\linewidth]{import.png}
+    \caption{Importing data into Neo4j is intuitive.}
+    \label{fig:import}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\linewidth]{import_success.png}
+    \caption{Importing data is successful.}
+    \label{fig:import_success}
+\end{figure}
+
+\section{Exploring the data with Neo4j}
+
+With 1878 nodes and relationships, the dataset is huge, and not everything can be seen from the Explore section of Neo4j Desktop.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\linewidth]{lot_data.png}
+    \caption{The dataset is huge and not everything can be shown at the same time.}
+    \label{fig:huge}
+\end{figure}
+
+\subsection{Creating a projection}
+
+First, we must understand what a \textbf{projection} is. This is a very important concept. It can be useful to compare them to \textbf{Views} in traditionnal RDBMS. They are \textit{in-memory} graphs, made from a subset of nodes and relationships of the database graph, and sometimes transformed. As they exist in the DBMS' memory only, they are erased when the instance shuts down. This means they are not part of the database's files.
+
+Projections are not meant to be used like views however. They are not intented to be displayed in Neo4j Desktop's Explorer for instance. They are intended to facilitate the running of algorithms on our data. Indeed, because they are in-memory and not on disk, algorithms can run faster. In addition, projections are decoupled from the database, which prevents accidental modification and makes it possible to create projections with certain caracterisics, i.e. only considering players from a certain school for instance.
+
+Now that we understand what a projection is and what purpose they serve, let's create one in Neo4j.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\linewidth]{creating_proj.png}
+    \caption{Creating a projection named recent\_players}
+    \label{fig:creating_proj}
+\end{figure}
+
+Here, we create a projection based on the result of a \textbf{Cypher\footnote{Neo4j's DSL} query}. This is done by passing the output of the query, which always consists of a table of rows even when shown as a graph, to a \textbf{Procedure} from the \textbf{GDS plugin}. The GDS plugin then creates a projection (hence, "project") from the query's result.
+
+We introduced three important terms: \textbf{Procedure}, \textbf{Plugin}, and \textbf{GDS}.
+
+\begin{itemize}
+    \item A \textbf{Procedure} is a function that can modify the database or run advanced algorithms. They are not part of the Cyper DSL. Instead, they are provided by a plugin and can be called in a specific way. (More on that later.)
+    \item A \textbf{Plugin} extends the functionalities of Neo4j. It is installed on an instance-basis, meaning a plugin is tied to a specific instance, i.e. a Neo4j server, and not to a database or to a Neo4j Desktop installation.
+    \item \textbf{GDS} is an official plugin that provides advanced algorithms for analysing graphs.
+\end{itemize}
+
+For players with a team and who were awarded at least one award:
+
+\begin{lstlisting}
+    MATCH (u:Player)-[r:PLAYED_IN]->(t:Team)
+    WHERE (u)-[:WAS_AWARDED]->(:Award)
+    WITH gds.graph.project("recent_players", u, t) AS g
+    RETURN g.graphName AS graph, g.nodeCount AS nodes, g.relationshipCount AS rels
+\end{lstlisting}
+
+There are simpler manners to create projections, for instance: \verb|CALL gds.graph.project("player_teams", ["Player", "Team"], "*")|. This creates a projection with all players and all their relationships with teams.
+
+We can then access the list of projections we created. (Figure \ref{fig:projlist}.)
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\linewidth]{graph_list.png}
+    \caption{We can see the list of projections.}
+    \label{fig:projlist}
+\end{figure}
+
+\section{Analysis}
+
+\subsection{Similarity Analysis}
+
+A similarity function can be defined as a function that takes two input $x$ and $y$, and that ouptuts a score, generally between $0$ and $1$ (though sometimes between $-1$ and $1$) determining how close the two inputs are.
+
+Several similarity functions are implemented in GDS.
+
+\subsubsection{Jaccard Similarity}
+
+This similarity functions measures overlap between sets. When applied to a graph such as ours, the sets are the respective nodes' set of neighbours. Meaning that if for two nodes we get a score of $1.0$, those two nodes have exactly the same neighbours.
+
+We will apply it to the projection \verb|recent_players| that we created in the previous section, that groups players with an award and a team. As we can see from the results, certain players share exactly the same team and awards, as indicated by the score of 1. \ref{fig:jaccard}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\linewidth]{jaccard.png}
+    \caption{Computing the Jaccard similarity}
+    \label{fig:jaccard}
+\end{figure}
+
+\subsection{Community detection}
+
+This allows us to detect communities, meaning group of nodes forming groups within the grap.
+
+One such algorithm is Louvain.
+
+\subsubction{Louvain}
+
+\begin{lstlisting}
+CALL gds.louvain.stream('sct')
+YIELD nodeId, communityId
+WITH gds.util.asNode(nodeId) AS n, communityId
+WHERE 'Player' IN labels(n)
+RETURN n.fullGivenName AS nodeName, n.highSchool, n.college, communityId
+ORDER BY communityId
+\end{lstlisting}
+
+Notice this part \verb|WHERE 'Player' IN labels(n)|, whic filters out non-Player nodes.
+
+This algorithm allows us to detect communities inside our graph. (Figure \ref{fig:coms})
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\linewidth]{communities.png}
+    \caption{Detecting communities}
+    \label{fig:coms}
+\end{figure}
+
+What is unexpected from the results we got is that players rarely seem to come from the same College. The algorithm might be lead into thinking that they share the same high school, simply because the high school is set to null. Maybe only considering players with a high school filled and a college will allow the algorithm to run smoother.
+
+
+
+
+
+\end{document}
