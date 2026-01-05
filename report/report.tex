@@ -241,7 +241,41 @@ This algorithm allows us to detect communities inside our graph. (Figure \ref{fi
 
 What is unexpected from the results we got is that players rarely seem to come from the same College. The algorithm might be lead into thinking that they share the same high school, simply because the high school is set to null. Maybe only considering players with a high school filled and a college will allow the algorithm to run smoother.
 
+This is because the Louvain algorithm expects a \textbf{monopartite} graph. Let’s try again with one such graph.
 
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\linewidth]{louvain_mono.png}
+    \caption{Running Louvain on the mono-partite projection.}
+    \label{fig:louvain_mono}
+\end{figure}
+
+As we can see in figure \ref{fig:louvain_mono}, the communities that were identified now make more sense. They reveal what teams the players played in, as this is based on the graph's relationships (which in our mono-partite projection only reveals the teams the players played in).
+
+Future work may include creating new relationships between Players (for instance, if they went to the same high school or college), and run Louvain specifically on these relationships or on all relationships together, to see the impact it has on communities. However, Louvain is not deterministic. Change will happen every time it is run.
+
+\subsubsection{Connected Components}
+
+Connected Components is an algorithm useful for detecting independent communities in a graph. It is also an algorithm we can run on our bipartite graph.
+
+\begin{lstlisting}
+CALL gds.wcc.stream('bipartiteProj')
+YIELD nodeId, componentId
+RETURN gds.util.asNode(nodeId).fullGivenName AS Player,
+       componentId
+ORDER BY componentId
+\end{lstlisting}
+
+The vast majority of the returned Players belong to "componentId" number 0. Others however belong to a separate "componentId" in which they are the only Player.
+
+What this means is that most players belong to the same component (it is possible to access any player from any other player by following a stream of relationships). Some others however are completely isolated, because they are not linked to any other player. (Figure \ref{fig:connected}.)
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\linewidth]{components.png}
+    \caption{Most nodes are connected together, apart from a few isolated ones.}
+    \label{fig:connected}
+\end{figure}
 
 
 
