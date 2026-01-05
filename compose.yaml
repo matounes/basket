@@ -1,0 +1,8 @@
+services:
+  pandoc_dsn:
+    image: pandoc/latex:3.8.3
+    user: "${UID:?error}:${GID:?error}"
+    stdin_open: true
+    tty: true
+    volumes:
+      - ./report:/data

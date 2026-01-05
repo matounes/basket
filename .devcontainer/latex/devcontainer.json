@@ -1,0 +1,17 @@
+{
+    "name": "basket_devcontainer",
+    "dockerComposeFile": [
+        "../../compose.yaml"
+    ],
+    "service": "pandoc_dsn",
+    "workspaceFolder": "/data",
+    "containerUser": "root",
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "James-Yu.latex-workshop",
+                "tomoki1207.pdf"
+            ]
+        }
+    }
+}
