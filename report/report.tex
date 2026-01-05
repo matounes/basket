@@ -99,6 +99,21 @@ Neo4j Desktop makes it convenient and easy to import data. From its graphical us
     \label{fig:import_success}
 \end{figure}
 
+\subsection{Creating a bi-partite graph}
+
+We just created a $k$-partite graph, because we have several types of nodes and edges only between types. Certain algorithms only run on bi-partite graphs however, meaning graphs with two partitions and with edges only between those partitions.
+
+We create this graph by only condidering the "Player" and the "Team" nodes, as they are the relationships with the most information. High school and college are already stored as properties of the "Player" node.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\linewidth]{bipartite.png}
+    \caption{Creating a bipartite graph}
+    \label{fig:bipartite}
+\end{figure}
+
+We will create a mono-partite graph later using a projection.
+
 \section{Exploring the data with Neo4j}
 
 With 1878 nodes and relationships, the dataset is huge, and not everything can be seen from the Explore section of Neo4j Desktop.
@@ -155,6 +170,26 @@ We can then access the list of projections we created. (Figure \ref{fig:projlist
     \label{fig:projlist}
 \end{figure}
 
+\subsubsection{Creating a projection for a monopartite graph}
+
+We will now create our monopartite graph as a projection.
+
+To do so, we will only retain Player nodes, and create relationships between them, all that using a projection.
+
+\begin{lstlisting}
+    CALL gds.graph.project.cypher(
+  'mono',
+  'MATCH (p:Player) RETURN id(p) AS id',
+  '
+  MATCH (p1:Player)-[:PLAYED_IN]->(t:Team)<-[:PLAYED_IN]-(p2:Player)
+  WHERE id(p1) < id(p2)
+  RETURN id(p1) AS source, id(p2) AS target
+  '
+)
+\end{lstlisting}
+
+We get, as a result, 893 nodes (the number of players) with more than 52798 relations in total.
+
 \section{Analysis}
 
 \subsection{Similarity Analysis}
@@ -182,7 +217,7 @@ This allows us to detect communities, meaning group of nodes forming groups with
 
 One such algorithm is Louvain.
 
-\subsubction{Louvain}
+\subsubsection{Louvain}
 
 \begin{lstlisting}
 CALL gds.louvain.stream('sct')
