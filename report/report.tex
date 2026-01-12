@@ -258,7 +258,6 @@ RETURN
   similarity
 ORDER BY similarity DESC, player;
 \end{lstlisting}
-\subsection{Community detection}
 
 \begin{figure}[htbp]
     \centering
@@ -543,8 +542,28 @@ A(x,y) = \sum_{u \in N(x) \cap N(y)} \frac{1}{\log |N(u)|}
 
 For both Adamic-Adar and Common Neighbors, the higher both scores are, the higher the likelihood of a relationship forming between the two nodes.
 
-
 We get $2$ as a result.
 
+\subsection{Path finding}
+
+For our graph, path finding does not indicate to us how similar nodes are between each other. However, they can help us understand the relations between them.
+
+For instance, let’s focus on two nodes with no relationship through a team: "Stacey Lovelace" and "Adrienne Goodson". It can thus be interesting to see how we go from one node to the other.
+
+\begin{lstlisting}
+MATCH p = (p1:Player {fullGivenName:"Taj McWilliams-Franklin"})
+          -[:PLAYED_IN*1..4]-
+          (p2:Player {fullGivenName:"Kristen Rasmussen"})
+RETURN p;  
+\end{lstlisting}
+
+The result we get gives us a player between the two ("Markita Aldridge") who played in both teams. (Fig. \ref{fig:path_finding})
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\linewidth]{path_finding.png}
+    \caption{Shortest path between the two players.}
+    \label{fig:path_finding}
+\end{figure}
 
 \end{document}
