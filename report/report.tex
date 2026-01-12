@@ -7,6 +7,8 @@
 
 \usepackage{hyperref}
 
+\usepackage{csquotes}
+
 \lstdefinelanguage{Cypher}{
   keywords={MATCH, RETURN, WHERE, CREATE, DELETE, SET, WITH, MERGE},
   sensitive=true,
@@ -146,10 +148,10 @@ In the following code snippet, we create a projection of the players with a team
     RETURN g.graphName AS graph, g.nodeCount AS nodes, g.relationshipCount AS rels
 \end{lstlisting}
 
-There are simpler and more useful manners to create projections, for instance:
+There are simpler and more useful manners to create projections, for instance, using GDS' native projection system:
 
 \begin{lstlisting}
-CALL gds.graph.project("player_teams", ["Player", "Team"], "*", {PLAYED_IN: {orientation: 'UNDIRECTED'}})
+CALL gds.graph.project("bipartite", ["Player", "Team"], {PLAYED_IN: {orientation: 'UNDIRECTED'}})
 \end{lstlisting}
  
 We have \verb|undirectedRelationshipTypes| to make relationships undirected. Certain algorithms and metrics, such as the calculation of node degrees, only consider certain edge orientations. In addition, because there is only one edge type which only indicates a relationship between two different node types, there is no orientation.
@@ -233,7 +235,7 @@ For the bipartite graph, we get the following result. (Fig. \ref{fig:jaccard})
 // Top-10 Players by degree (to Teams) + Jaccard similarity (Players vs Players)
 CALL {
   CALL gds.degree.stream(
-    'bipartite',                               // <-- your bipartite projection name
+    'bipartite',
     { nodeLabels: ['Player'], relationshipTypes: ['PLAYED_IN'] }
   )
   YIELD nodeId, score
@@ -242,11 +244,11 @@ CALL {
 CALL gds.nodeSimilarity.filtered.stream(
   'bipartite',
   {
-    sourceNodeFilter: topPlayers,               // only compute for these 10 as sources
-    targetNodeFilter: 'Player',                 // compare only against Players
+    sourceNodeFilter: topPlayers,
+    targetNodeFilter: 'Player',
     similarityMetric: 'JACCARD',
-    topK: 20,                                   // best 20 matches per source player
-    similarityCutoff: 0.1                       // optional
+    topK: 20,
+    similarityCutoff: 0.1
   }
 )
 YIELD node1, node2, similarity
@@ -304,6 +306,41 @@ ORDER BY similarity DESC, player;
 \end{figure}
 
 The results we get (Fig \ref{fig:jaccard_monopartite}) provide us with a good visualisation of players sharing a common history. For example, at the very top, we have Monique Ambers and Pauline Jordan, who both did their careers in the Phoenix Mercury and the Sacramento Monarchs.
+
+\subsubsection{Overlap Similarity}
+
+To compute the overlap similarities, we just need to change the last part of both queries.
+
+\begin{lstlisting}
+// ...
+CALL gds.nodeSimilarity.filtered.stream(
+  'bipartite',
+  {
+    sourceNodeFilter: topPlayers,
+    targetNodeFilter: 'Player',
+    similarityMetric: 'OVERLAP',
+    topK: 20,
+    similarityCutoff: 0.1
+  }
+)
+YIELD node1, node2, similarity
+RETURN
+  gds.util.asNode(node1).fullGivenName AS player,
+  gds.util.asNode(node2).fullGivenName AS similarPlayer,
+  similarity
+ORDER BY similarity DESC, player;
+\end{lstlisting}
+
+As we can see in Fig. \ref{fig:overlap_bipartite}, all returned nodes have a similarity score of $1.0$. Why this difference with the Jaccard?
+
+Both algorithms compute a different thing. Say one player node played in 2 teams, in which another player node who played in 10 teams also played. The Jaccard similarity between the two would be $\frac{2}{10} = 0.2$, while the overlap would be $\frac{2}{2}=1$, because the first player’s neighbors are fully contained in the second player.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\linewidth]{overlap_bipartite.png}
+    \caption{We compute the Jaccard on the monopartite projection.}
+    \label{fig:overlap_bipartite}
+\end{figure}
 
 \subsection{Community Analysis}
 
@@ -370,6 +407,144 @@ What this means is that most players belong to the same component (it is possibl
     \label{fig:connected}
 \end{figure}
 
+\subsection{Degree Centrality}
+
+First, let's answer the question: What is Degree Centrality? Well, according to Neo4j's documentation\footnote{\url{https://neo4j.com/docs/graph-data-science/current/algorithms/degree-centrality/}}:
+
+\begin{displayquote}
+The Degree Centrality algorithm can be used to find popular nodes within a graph. The degree centrality measures the number of incoming or outgoing (or both) relationships from a node, which can be defined by the orientation of a relationship projection. If a projection contains directed relationships, only outgoing relationships of a node are counted (the out-degree).
+\end{displayquote}
+
+Because we converted all relationships to undirected ones, we don’t have to worry about ingoing relationships not being counted.
+
+Running the Degree Centrality algorithm on the bipartite projection will give us the most central nodes, \textit{i.e.} the nodes with the highest number of relationships.
+
+\begin{lstlisting}
+CALL gds.degree.stream(
+  'bipartite',
+  {
+    relationshipTypes: ['PLAYED_IN']
+  }
+) YIELD nodeId, score
+WHERE 'Player' IN labels(gds.util.asNode(nodeId))
+RETURN gds.util.asNode(nodeId).fullGivenName, score
+ORDER BY score DESC
+\end{lstlisting}
+
+With this query, we unsurprisingly get teams as the most central. (A player cannot match the number of relationships a team has.)
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\linewidth]{most_central_teams.png}
+    \caption{Most central teams.}
+    \label{fig:most_central_teams}
+\end{figure}
+
+
+At the very top are PHO, WAS, and LAS. (Fig. \ref{fig:most_central_teams})
+
+We will now compute the most central players only. (Fig. \ref{fig:most_central_players})
+
+\begin{lstlisting}
+CALL gds.degree.stream(
+  'bipartite',
+  {
+    relationshipTypes: ['PLAYED_IN']
+  }
+) YIELD nodeId, score
+WHERE 'Player' IN labels(gds.util.asNode(nodeId))
+RETURN gds.util.asNode(nodeId).fullGivenName, score
+ORDER BY score DESC
+\end{lstlisting}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\linewidth]{most_central_players.png}
+    \caption{Most central players.}
+    \label{fig:most_central_players}
+\end{figure}
+
+In our graph, they would correspond to players with the richest team history.
+
+But how does it differ from the same query run on our monopartite graph?
+
+\begin{lstlisting}
+CALL gds.degree.stream(
+  'bipartite',
+  {
+    relationshipTypes: ['PLAYED_IN']
+  }
+) YIELD nodeId, score
+WHERE 'Player' IN labels(gds.util.asNode(nodeId))
+RETURN gds.util.asNode(nodeId).fullGivenName, score
+ORDER BY score DESC
+\end{lstlisting}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\linewidth]{most_central_players_monopartite.png}
+    \caption{Most central players in the monopartite graph.}
+    \label{fig:most_central_players_monopartite}
+\end{figure}
+
+As we can see in Fig. \ref{fig:most_central_players_monopartite}, we get roughly the same results as for the bipartite projection but with some differences. This is because the relationships in both projections do not mean the same thing, and so is the degree centrality. Degree Centrality in the bipartite graph simply and plainly indicates the number of teams the player played in, while in the monopartite graph, it is an indicator of both the number of teams and the number of players within those theams.
+
+\subsection{Link Prediction}
+
+We will only consider the top 10 players with the highest degree.
+
+Let’s see the number of teams they both share in their history \textbf{for our bipartite graph}:
+
+\begin{lstlisting}
+// 1) Get top 10 Player nodes by degree (in the bipartite projection)
+CALL {
+  CALL gds.degree.stream('bipartite', { relationshipTypes: ['PLAYED_IN'] })
+  YIELD nodeId, score
+  WITH nodeId, score
+  WHERE gds.util.asNode(nodeId):Player
+  ORDER BY score DESC
+  LIMIT 10
+  RETURN collect(gds.util.asNode(nodeId)) AS topPlayers
+}
+
+// 2) Generate all unordered pairs among the top 10
+UNWIND range(0, size(topPlayers) - 2) AS i
+UNWIND range(i + 1, size(topPlayers) - 1) AS j
+WITH topPlayers[i] AS p1, topPlayers[j] AS p2
+
+// 3) Call the pairwise link-prediction functions
+RETURN
+  p1.fullGivenName AS Player1,
+  p2.fullGivenName AS Player2,
+  gds.linkprediction.commonNeighbors(p1, p2, {
+    relationshipQuery: "PLAYED_IN",
+    direction: "BOTH"
+  }) AS CommonNeighbors,
+  gds.linkprediction.adamicAdar(p1, p2, {
+      relationshipQuery: "PLAYED_IN",
+      direction: "BOTH"
+  }) AS AdamicAdar
+ORDER BY CommonNeighbors DESC, AdamicAdar DESC
+\end{lstlisting}
+
+This is a big query, so let’s try to understand it.
+
+The first part of the query simply returns the top 10 players based on their centrality (\textit{i.e.} their degree, the number of relationships they have) in the bipartite graph.
+
+The second part of the query generates all possible pairs of different nodes from the previous result.
+
+Finally, the last part simply calls two procedures from GDS: \verb|commonNeihgbors| and |adamicAdar|.
+
+\verb|commonNeighbors| is self-explanatory, and we've already seen it. Adamic-Adar deserves an explanation. It calculates a score of similarity between two nodes based on the commonality of their connections. The formula used is:
+\[
+A(x,y) = \sum_{u \in N(x) \cap N(y)} \frac{1}{\log |N(u)|}
+\]
+
+
+For both Adamic-Adar and Common Neighbors, the higher both scores are, the higher the likelihood of a relationship forming between the two nodes.
+
+
+We get $2$ as a result.
 
 
 \end{document}
