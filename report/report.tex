@@ -5,6 +5,8 @@
 \usepackage{listings}
 \usepackage{xcolor}
 
+\usepackage{hyperref}
+
 \lstdefinelanguage{Cypher}{
   keywords={MATCH, RETURN, WHERE, CREATE, DELETE, SET, WITH, MERGE},
   sensitive=true,
@@ -48,9 +50,9 @@ The dataset we are using is the \verb|Basketball_women.json| dataset. As for any
 
 For this, we use Python with the Pandas library, as well as a notebook as it makes prototyping and seeing the result very fast and convenient. We use these tools to get an idea of the structure and the volume of the data.
 
-\begin{figure}[h]
+\begin{figure}[ht]
     \centering
-    \includegraphics[width=0.5\linewidth]{image.png}
+    \includegraphics[width=\linewidth]{image.png}
     \caption{We use Pandas for very basic EDA.}
     \label{fig:eda}
 \end{figure}
@@ -99,24 +101,9 @@ Neo4j Desktop makes it convenient and easy to import data. From its graphical us
     \label{fig:import_success}
 \end{figure}
 
-\subsection{Creating a bi-partite graph}
-
-We just created a $k$-partite graph, because we have several types of nodes and edges only between types. Certain algorithms only run on bi-partite graphs however, meaning graphs with two partitions and with edges only between those partitions.
-
-We create this graph by only condidering the "Player" and the "Team" nodes, as they are the relationships with the most information. High school and college are already stored as properties of the "Player" node.
-
-\begin{figure}[htbp]
-    \centering
-    \includegraphics[width=\linewidth]{bipartite.png}
-    \caption{Creating a bipartite graph}
-    \label{fig:bipartite}
-\end{figure}
-
-We will create a mono-partite graph later using a projection.
-
 \section{Exploring the data with Neo4j}
 
-With 1878 nodes and relationships, the dataset is huge, and not everything can be seen from the Explore section of Neo4j Desktop.
+With 1878 nodes and relationships, the dataset is huge, and not everything can be seen from the Explore section of Neo4j Desktop. (Fig. \ref{fig:huge})
 
 \begin{figure}[htbp]
     \centering
@@ -145,12 +132,12 @@ Here, we create a projection based on the result of a \textbf{Cypher\footnote{Ne
 We introduced three important terms: \textbf{Procedure}, \textbf{Plugin}, and \textbf{GDS}.
 
 \begin{itemize}
-    \item A \textbf{Procedure} is a function that can modify the database or run advanced algorithms. They are not part of the Cyper DSL. Instead, they are provided by a plugin and can be called in a specific way. (More on that later.)
-    \item A \textbf{Plugin} extends the functionalities of Neo4j. It is installed on an instance-basis, meaning a plugin is tied to a specific instance, i.e. a Neo4j server, and not to a database or to a Neo4j Desktop installation.
+    \item A \textbf{Procedure} is a function that can modify the database or run advanced algorithms. They are not part of the Cyper DSL. Instead, they are provided by plugins and can be called from within a Cypher query. (More on that later.)
+    \item A \textbf{Plugin} extends the functionalities of Neo4j. Its installation is tied to a specific instance, i.e. a Neo4j server, and not to a database or to a Neo4j Desktop installation.
     \item \textbf{GDS} is an official plugin that provides advanced algorithms for analysing graphs.
 \end{itemize}
 
-For players with a team and who were awarded at least one award:
+In the following code snippet, we create a projection of the players with a team and who were awarded at least one award:
 
 \begin{lstlisting}
     MATCH (u:Player)-[r:PLAYED_IN]->(t:Team)
@@ -159,7 +146,61 @@ For players with a team and who were awarded at least one award:
     RETURN g.graphName AS graph, g.nodeCount AS nodes, g.relationshipCount AS rels
 \end{lstlisting}
 
-There are simpler manners to create projections, for instance: \verb|CALL gds.graph.project("player_teams", ["Player", "Team"], "*")|. This creates a projection with all players and all their relationships with teams.
+There are simpler and more useful manners to create projections, for instance:
+
+\begin{lstlisting}
+CALL gds.graph.project("player_teams", ["Player", "Team"], "*", {PLAYED_IN: {orientation: 'UNDIRECTED'}})
+\end{lstlisting}
+ 
+We have \verb|undirectedRelationshipTypes| to make relationships undirected. Certain algorithms and metrics, such as the calculation of node degrees, only consider certain edge orientations. In addition, because there is only one edge type which only indicates a relationship between two different node types, there is no orientation.
+
+This creates a projection with all players and all their relationships with teams. This effectively turns our $k$-partite graph into a bipartite one. But, gee, what is a bipartite graph?
+
+\subsubsection{Creating a bipartite graph}
+
+The graph we created by importing the CSVs that were transformed using Pandas is a \textbf{$k$-partite graph}. This is because we have several types of nodes and edges only between types. Certain algorithms only run on monopartite or bipartite graphs however, meaning graphs with one node type and relationship type in the former case and two partitions and with edges only between those partitions in the latter case. \footnote{"Most graph algorithms are designed to be executed on a monopartite network, where only a single node and relationship type are present." \url{https://www.oreilly.com/library/view/graph-algorithms-for/9781617299469/OEBPS/Text/ch06.htm}}
+
+In general, as we lower the $k$ of our $k$-partite graph, we lose information gradually. For this reason, we will first make a bipartite projection from our graph, then a monopartite one.
+
+We create the bipartite graph by only condidering the "Player" and the "Team" nodes, as they are the relationships with the most information. High school and college are already stored as properties of the "Player" node. \footnote{We could decide to create relationships between players who share the same high school and college, but not only do we not lose information yet (these informations are still stored in the node's properties), this could also result in the creation of artificial edges and huge, misleading cliques.}
+
+So, creating our bipartite graph is just a matter of only creating the "Player" and "Team" nodes. We do this by calling the \verb|gds.graph.project()| \textbf{procedure} of the GDS \textbf{plugin}, which results in a new \textbf{projection}\footnote{Oh yeah, the GDS Plugin's Procedure to create a Projection! You Sir, are a mouthful!}. (Fig. \ref{fig:creating_bipartite})
+
+
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\linewidth]{creating_bipartite.png}
+    \caption{Creating a bipartite graph}
+    \label{fig:creating_bipartite}
+\end{figure}
+
+\subsubsection{Creating a projection for a monopartite graph}
+
+We will now create our monopartite graph as a projection of the bipartite graph.
+
+To do so, we will only retain Player nodes, and create relationships between them, all that using a projection. \footnote{Notice we use the new Cypher projection syntax, as the old one "graph.gds.project.cypher()" is deprecated.}
+
+\begin{lstlisting}
+MATCH (source:Player)
+OPTIONAL MATCH (source)-[:PLAYED_IN]->(t)<-[:PLAYED_IN]-(target)
+WITH gds.graph.project(
+    'monopartite',
+    source,
+    target,
+    {},
+    {undirectedRelationshipTypes: ['*']}
+) as g
+RETURN g.graphName AS graph, g.nodeCount as nodes, g.relationshipCount as rels
+\end{lstlisting}
+
+Notice that we have \verb|MATCH| and \verb|OPTIONAL MATCH|. This allows us to capture both \textbf{connected} and \textbf{unconnected} nodes.
+
+Again, we have \verb|undirectedRelationshipTypes| to make relationships undirected.
+
+We get, as a result, 893 nodes (the number of players) with 211192 relations in total. The extreme increase of relationships (compared to the bipartite and original graph) is to be expected when projecting to a lower partiteness. This is an indication of artificial relationships which might result in large, hard-to-exploit cliques.
+
+\subsection{Accessing the projections we created}
 
 We can then access the list of projections we created. (Figure \ref{fig:projlist}.)
 
@@ -170,25 +211,7 @@ We can then access the list of projections we created. (Figure \ref{fig:projlist
     \label{fig:projlist}
 \end{figure}
 
-\subsubsection{Creating a projection for a monopartite graph}
 
-We will now create our monopartite graph as a projection.
-
-To do so, we will only retain Player nodes, and create relationships between them, all that using a projection.
-
-\begin{lstlisting}
-    CALL gds.graph.project.cypher(
-  'mono',
-  'MATCH (p:Player) RETURN id(p) AS id',
-  '
-  MATCH (p1:Player)-[:PLAYED_IN]->(t:Team)<-[:PLAYED_IN]-(p2:Player)
-  WHERE id(p1) < id(p2)
-  RETURN id(p1) AS source, id(p2) AS target
-  '
-)
-\end{lstlisting}
-
-We get, as a result, 893 nodes (the number of players) with more than 52798 relations in total.
 
 \section{Analysis}
 
@@ -202,55 +225,125 @@ Several similarity functions are implemented in GDS.
 
 This similarity functions measures overlap between sets. When applied to a graph such as ours, the sets are the respective nodes' set of neighbours. Meaning that if for two nodes we get a score of $1.0$, those two nodes have exactly the same neighbours.
 
-We will apply it to the projection \verb|recent_players| that we created in the previous section, that groups players with an award and a team. As we can see from the results, certain players share exactly the same team and awards, as indicated by the score of 1. \ref{fig:jaccard}
+We will compute the Jaccard Similarity for the top 10 nodes (in terms of degree\footnote{Number of relationships.}) of each of our projection (bipartite and monopartite).
+
+For the bipartite graph, we get the following result. (Fig. \ref{fig:jaccard})
+
+\begin{lstlisting}
+// Top-10 Players by degree (to Teams) + Jaccard similarity (Players vs Players)
+CALL {
+  CALL gds.degree.stream(
+    'bipartite',                               // <-- your bipartite projection name
+    { nodeLabels: ['Player'], relationshipTypes: ['PLAYED_IN'] }
+  )
+  YIELD nodeId, score
+  RETURN collect(nodeId)[0..10] AS topPlayers
+}
+CALL gds.nodeSimilarity.filtered.stream(
+  'bipartite',
+  {
+    sourceNodeFilter: topPlayers,               // only compute for these 10 as sources
+    targetNodeFilter: 'Player',                 // compare only against Players
+    similarityMetric: 'JACCARD',
+    topK: 20,                                   // best 20 matches per source player
+    similarityCutoff: 0.1                       // optional
+  }
+)
+YIELD node1, node2, similarity
+RETURN
+  gds.util.asNode(node1).fullGivenName AS player,
+  gds.util.asNode(node2).fullGivenName AS similarPlayer,
+  similarity
+ORDER BY similarity DESC, player;
+\end{lstlisting}
+\subsection{Community detection}
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=\linewidth]{jaccard.png}
-    \caption{Computing the Jaccard similarity}
-    \label{fig:jaccard}
+    \includegraphics[width=\linewidth]{jaccard_bipartite.png}
+    \caption{We compute the Jaccard on the bipartite projection.}
+    \label{fig:jaccard_bi}
 \end{figure}
 
-\subsection{Community detection}
+The similarity score goes gradually from $1.0$ to $0.33$. This indicates that all of the top 10 nodes share at least one common neighbor. In addition, a lot of scores are $1.0$, meaning two players share exactly the same team history (regardless of the dates).
 
-This allows us to detect communities, meaning group of nodes forming groups within the grap.
+Now, with the monopartite graph:
 
-One such algorithm is Louvain.
+\begin{lstlisting}
+CALL {
+  CALL gds.degree.stream(
+    'monopartite',
+    { nodeLabels: ['__ALL__'], relationshipTypes: ['__ALL__'] }
+  )
+  YIELD nodeId, score
+  RETURN collect(nodeId)[0..10] AS topPlayers
+}
+CALL gds.nodeSimilarity.filtered.stream(
+  'monopartite',
+  {
+    sourceNodeFilter: topPlayers,
+    targetNodeFilter: '__ALL__',
+    similarityMetric: 'JACCARD',
+    topK: 20,
+    similarityCutoff: 0.1
+  }
+)
+YIELD node1, node2, similarity
+RETURN
+  gds.util.asNode(node1).fullGivenName AS player,
+  gds.util.asNode(node2).fullGivenName AS similarPlayer,
+  similarity
+ORDER BY similarity DESC, player;
+\end{lstlisting}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=\linewidth]{jaccard_monopartite.png}
+    \caption{We compute the Jaccard on the monopartite projection.}
+    \label{fig:jaccard_monopartite}
+\end{figure}
+
+The results we get (Fig \ref{fig:jaccard_monopartite}) provide us with a good visualisation of players sharing a common history. For example, at the very top, we have Monique Ambers and Pauline Jordan, who both did their careers in the Phoenix Mercury and the Sacramento Monarchs.
+
+\subsection{Community Analysis}
+
+A community can be loosely defined as a group of nodes that are more strongly connected to each other than to the rest of the graph.
+
+This allows us to detect communities, meaning group of nodes forming groups within the graph.
+
+One such algorithm is Louvain. Louvain is an algorithm meant for monopartite graphs only. As such, we will only run it on our \verb|monopartite| projection.
 
 \subsubsection{Louvain}
 
 \begin{lstlisting}
-CALL gds.louvain.stream('sct')
-YIELD nodeId, communityId
-WITH gds.util.asNode(nodeId) AS n, communityId
-WHERE 'Player' IN labels(n)
-RETURN n.fullGivenName AS nodeName, n.highSchool, n.college, communityId
-ORDER BY communityId
+CALL gds.louvain.write(
+  'monopartite',
+  {
+    writeProperty: 'communityId'
+  }
+)
+YIELD communityCount, modularity, ranLevels, nodePropertiesWritten;
 \end{lstlisting}
 
 Notice this part \verb|WHERE 'Player' IN labels(n)|, whic filters out non-Player nodes.
 
-This algorithm allows us to detect communities inside our graph. (Figure \ref{fig:coms})
-
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=\linewidth]{communities.png}
+    \includegraphics[width=\linewidth]{louvain_monopartite.png}
     \caption{Detecting communities}
-    \label{fig:coms}
+    \label{fig:louvain_monopartite}
 \end{figure}
 
-What is unexpected from the results we got is that players rarely seem to come from the same College. The algorithm might be lead into thinking that they share the same high school, simply because the high school is set to null. Maybe only considering players with a high school filled and a college will allow the algorithm to run smoother.
-
-This is because the Louvain algorithm expects a \textbf{monopartite} graph. Let’s try again with one such graph.
+As we can see in figure \ref{fig:louvain_monopartite}, Louvain identified 92 communities. They reveal what teams the players played in, as this is based on the graph's relationships (which in our mono-partite projection only reveals the teams the players played in).
 
 \begin{figure}[htbp]
     \centering
-    \includegraphics[width=\linewidth]{louvain_mono.png}
-    \caption{Running Louvain on the mono-partite projection.}
-    \label{fig:louvain_mono}
+    \includegraphics[width=\linewidth]{louvain_monopartite_filter.png}
+    \caption{Detecting communities}
+    \label{fig:louvain_monopartite_filter}
 \end{figure}
 
-As we can see in figure \ref{fig:louvain_mono}, the communities that were identified now make more sense. They reveal what teams the players played in, as this is based on the graph's relationships (which in our mono-partite projection only reveals the teams the players played in).
+As we can see in Fig. \ref{fig:louvain_monopartite_filter}, we can then filter the view by community ID. (Community IDs go above 92 because they are not sequential.)
 
 Future work may include creating new relationships between Players (for instance, if they went to the same high school or college), and run Louvain specifically on these relationships or on all relationships together, to see the impact it has on communities. However, Louvain is not deterministic. Change will happen every time it is run.
 
